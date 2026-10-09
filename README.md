@@ -96,24 +96,51 @@ Operator endpoint (send `Authorization: Bearer <OPERATOR_API_KEY>`):
 ## Project layout
 
 ```
-.github/workflows/pipeline.yml   deployment pipeline (commit, acceptance and release stages)
-Dockerfile                       release candidate image
-acceptance/      acceptance tests: specs, DSL, protocol drivers, Google stub, smoke tests
-docs/            deployment pipeline guide
-src/
-  server.js      entry point
-  app.js         Express routes
-  store.js       JSON-file storage for agencies and widgets
-  google.js      Google Places API (New) client
-  reviews.js     caching review service and display filtering
-  demo.js        sample data for demo mode
-  validation.js  input validation
-public/
-  widget.js      embeddable widget (plain JS, no dependencies)
-  admin/         agency dashboard
-  demo.html      sample client page
-test/            node:test suites
+WhiteLabelGoogleReviewforNicheAgencies/
+├── src/                      Back-end server (Node.js + Express)
+│   ├── server.js             Entry point: starts the server
+│   ├── app.js                All HTTP routes (public, admin, operator)
+│   ├── config.js             Reads environment variables
+│   ├── store.js              Saves agencies & widgets to a JSON file
+│   ├── google.js             Google Places API (New) client
+│   ├── reviews.js            Review caching and star/count filtering
+│   ├── demo.js               Sample reviews for demo mode
+│   └── validation.js         Input checks for API requests
+│
+├── public/                   Files served to browsers
+│   ├── widget.js             The embeddable widget clients add to their sites
+│   ├── demo.html             Sample client page for previewing a widget
+│   └── admin/                Agency dashboard (index.html, admin.js, admin.css)
+│
+├── data/
+│   └── db.json               Your agencies & widgets (created at first start, git-ignored)
+│
+├── test/                     Unit and component tests
+│   ├── api.test.js
+│   └── reviews.test.js
+│
+├── acceptance/               End-to-end tests
+│   ├── specs/                Feature tests: branding, isolation, review requests, etc.
+│   ├── smoke/                Quick checks that a deployment works
+│   ├── dsl/                  Shared test helper functions
+│   ├── drivers/              Run tests through the API or a real browser
+│   ├── stubs/                Fake Google Places server
+│   └── config.js
+│
+├── scripts/
+│   ├── create-agency.js      npm run create-agency
+│   └── run-acceptance-stage.js
+│
+├── docs/deployment-pipeline.md
+├── .github/workflows/pipeline.yml   CI pipeline: tests, then publish image
+├── Dockerfile, .dockerignore
+├── package.json, package-lock.json
+├── eslint.config.js
+├── .env.example, .gitignore
+└── README.md
 ```
+
+**How a request flows:** A client's site loads `public/widget.js`. The widget asks `src/app.js` for its data. `reviews.js` gets reviews from `google.js`, or from `demo.js` when there's no API key, then caches and filters them. Widget and agency settings are stored in `data/db.json` by `store.js`.
 
 ## Development and the deployment pipeline
 
