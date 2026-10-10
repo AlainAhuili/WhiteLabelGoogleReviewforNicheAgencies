@@ -42,12 +42,28 @@ export class BrowserVisitorDriver {
         null,
         { timeout: 10_000 },
       );
+      // Wait until every avatar image has either loaded or failed.
+      await page.waitForFunction(
+        () => [...document.querySelector('[data-review-widget]').shadowRoot.querySelectorAll('img.avatar')]
+          .every((img) => img.complete),
+        null,
+        { timeout: 10_000 },
+      );
       if (errors.length) throw new Error(`Script errors on client site: ${errors.join('; ')}`);
 
-      return await page.evaluate(() => {
+      return await page.evaluate(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0)); // let pending load/error handlers run
         const root = document.querySelector('[data-review-widget]').shadowRoot;
         const text = (el) => el?.textContent.trim() ?? null;
         const stars = (el) => Number(/Rated ([\d.]+)/.exec(el.getAttribute('aria-label'))[1]);
+        // What a visitor sees in the avatar circle: a loaded photo, a letter, or nothing.
+        const avatar = (el) => {
+          const isImg = el?.tagName === 'IMG';
+          return {
+            photo: isImg && el.complete && el.naturalWidth > 0,
+            initial: el && !isImg ? text(el) || null : null,
+          };
+        };
         return {
           businessName: text(root.querySelector('.name')),
           rating: Number(text(root.querySelector('.head .score'))),
@@ -56,6 +72,7 @@ export class BrowserVisitorDriver {
             author: text(card.querySelector('.author-name')),
             stars: stars(card.querySelector('.stars')),
             text: text(card.querySelector('.text')),
+            avatar: avatar(card.querySelector('.avatar')),
           })),
           footerBranding: text(root.querySelector('.foot .powered')),
           googleAttribution: /Reviews from Google/.test(text(root.querySelector('.foot'))),

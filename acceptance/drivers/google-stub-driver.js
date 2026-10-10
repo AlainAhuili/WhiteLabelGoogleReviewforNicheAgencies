@@ -1,6 +1,13 @@
 import { config } from '../config.js';
 import { expectStatus, request } from './http.js';
 
+// Photo URLs served by the stub's fake photo host: one loads, one returns 404.
+const PHOTOS = {
+  available: `${config.googleStubUrl}/photos/reviewer.png`,
+  broken: `${config.googleStubUrl}/photos/missing.png`,
+  none: '',
+};
+
 /** Arranges and inspects data in the Google Places stub through its back channel. */
 export class GoogleStubDriver {
   async setPlace(placeId, { name, rating, userRatingCount, reviews }) {
@@ -14,7 +21,7 @@ export class GoogleStubDriver {
         rating: r.stars,
         text: { text: r.text, languageCode: 'en' },
         relativePublishTimeDescription: 'a week ago',
-        authorAttribution: { displayName: r.author, uri: '', photoUri: '' },
+        authorAttribution: { displayName: r.author, uri: '', photoUri: PHOTOS[r.photo] },
       })),
     };
     await expectStatus(

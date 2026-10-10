@@ -6,6 +6,9 @@
  *   GET  /v1/places/:placeId
  *   POST /v1/places:searchText
  *
+ * A fake photo host stands in for Google's reviewer photo CDN:
+ *   GET  /photos/reviewer.png               a valid image; any other photo is 404
+ *
  * Back-channel routes let acceptance tests arrange data and inspect calls:
  *   PUT  /__stub/places/:placeId            set a place resource
  *   GET  /__stub/places/:placeId/requests   how often the SUT fetched this place
@@ -15,6 +18,12 @@
  */
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
+
+// 1x1 transparent PNG.
+const REVIEWER_PHOTO = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 function send(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -53,6 +62,13 @@ export function createGooglePlacesStub() {
 
       if ((m = /^\/__stub\/places\/([^/]+)\/requests$/.exec(path)) && req.method === 'GET') {
         return send(res, 200, { count: requestCounts.get(decodeURIComponent(m[1])) || 0 });
+      }
+
+      // ---- Fake photo host ----
+      if (path.startsWith('/photos/')) {
+        if (path !== '/photos/reviewer.png') return send(res, 404, { error: 'No such photo' });
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        return res.end(REVIEWER_PHOTO);
       }
 
       // ---- Fake Google Places API ----

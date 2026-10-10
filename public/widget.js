@@ -99,17 +99,25 @@
     return wrap;
   }
 
+  function initialAvatar(review) {
+    return el('span', 'avatar', (review.author || '?').trim().charAt(0).toUpperCase());
+  }
+
   function avatar(review) {
     var photo = safeUrl(review.authorPhotoUrl);
     if (photo) {
       var img = el('img', 'avatar');
-      img.src = photo;
       img.alt = '';
       img.loading = 'lazy';
       img.referrerPolicy = 'no-referrer';
+      // Google photo URLs expire or get blocked; fall back to the initial.
+      img.addEventListener('error', function () {
+        img.replaceWith(initialAvatar(review));
+      });
+      img.src = photo;
       return img;
     }
-    return el('span', 'avatar', (review.author || '?').trim().charAt(0).toUpperCase());
+    return initialAvatar(review);
   }
 
   function reviewCard(review) {

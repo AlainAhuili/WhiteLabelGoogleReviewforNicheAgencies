@@ -14,7 +14,7 @@ export class ApiVisitorDriver {
       businessName: place.name,
       rating: place.rating,
       totalReviews: place.userRatingCount,
-      reviews: reviews.map((r) => ({ author: r.author, stars: r.rating, text: r.text })),
+      reviews: reviews.map((r) => ({ author: r.author, stars: r.rating, text: r.text, avatar: null })), // avatars are not observable through the API
       footerBranding: branding.poweredByText || null,
       googleAttribution: null, // not observable through the API
     };

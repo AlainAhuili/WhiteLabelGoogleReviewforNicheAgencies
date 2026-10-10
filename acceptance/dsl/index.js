@@ -43,7 +43,7 @@ class GoogleDsl {
 
   /**
    * @param {string} business
-   * @param {{ rating?: number, totalReviews?: number, reviews: Array<{ stars: number, author?: string, text?: string }> }} details
+   * @param {{ rating?: number, totalReviews?: number, reviews: Array<{ stars: number, author?: string, text?: string, photo?: 'available' | 'broken' | 'none' }> }} details
    */
   async businessHasReviews(business, { rating = 4.6, totalReviews = 100, reviews }) {
     const place = {
@@ -54,6 +54,7 @@ class GoogleDsl {
         author: r.author ?? `Reviewer ${i + 1}`,
         stars: r.stars,
         text: r.text ?? `A ${r.stars}-star experience.`,
+        photo: r.photo ?? 'none',
       })),
     };
     this.#places.set(business, place);
@@ -177,6 +178,21 @@ class VisitorDsl {
   assertSeesReviewBy(author) {
     const authors = this.#lastView().reviews.map((r) => r.author);
     assert.ok(authors.includes(author), `Expected a review by "${author}", saw: ${authors.join(', ')}`);
+  }
+
+  #avatarOf(author) {
+    const review = this.#lastView().reviews.find((r) => r.author === author);
+    assert.ok(review, `Expected a review by "${author}"`);
+    if (review.avatar === null) throw new Error(`Avatars are not observable via the ${this.channel} channel`);
+    return review.avatar;
+  }
+
+  assertSeesPhotoOf(author) {
+    assert.deepEqual(this.#avatarOf(author), { photo: true, initial: null }, `Expected to see a photo of "${author}"`);
+  }
+
+  assertSeesInitialOf(author, initial) {
+    assert.deepEqual(this.#avatarOf(author), { photo: false, initial }, `Expected to see "${initial}" for "${author}"`);
   }
 
   assertSeesFooter(text) {
