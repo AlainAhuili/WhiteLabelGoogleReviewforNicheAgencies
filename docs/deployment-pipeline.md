@@ -24,7 +24,7 @@ The commit stage runs on every push and pull request. It answers one question: *
 | Step | Command | Why |
 | --- | --- | --- |
 | Lint | `npm run lint` | Catches defects and unsafe patterns before any test runs |
-| Unit and component tests | `npm test` | Fast, in-process tests of behavior; no network or browser |
+| Unit and component tests | `npm test` | Fast, in-process tests of behavior; no network or browser. The embed script runs in a simulated DOM (jsdom) |
 | Coverage gate | built into `npm test` (85% lines) | Stops untested code from slipping in |
 | Dependency audit | `npm audit --omit=dev --audit-level=high` | Checks the supply chain |
 | Build release candidate | `docker build --build-arg APP_VERSION=$SHA` | **Built once.** Every later stage uses this exact image |

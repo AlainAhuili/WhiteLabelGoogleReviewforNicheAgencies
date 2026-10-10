@@ -117,7 +117,8 @@ WhiteLabelGoogleReviewforNicheAgencies/
 │
 ├── test/                     Unit and component tests
 │   ├── api.test.js
-│   └── reviews.test.js
+│   ├── reviews.test.js
+│   └── widget.test.js        The embed script, in a simulated DOM (jsdom)
 │
 ├── acceptance/               End-to-end tests
 │   ├── specs/                Feature tests: branding, isolation, review requests, etc.
