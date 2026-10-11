@@ -1,27 +1,12 @@
 import assert from 'node:assert/strict';
 import { before, beforeEach, describe, it } from 'node:test';
-import { JSDOM } from 'jsdom';
+import { simulateClientSite } from './support/client-site.js';
 
 // The embed script is a classic browser script, so it runs here in a simulated
 // DOM with fetch stubbed. Behavior in a real browser is covered by the
 // acceptance tests; these give fast feedback and keep it under the coverage gate.
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://client.example/' });
-const { window } = dom;
-const { document } = window;
-
-let requests;
-let respond;
-
-globalThis.window = window;
-globalThis.document = document;
-globalThis.fetch = async (url, options) => {
-  requests.push({ url, options });
-  return respond();
-};
-
-function respondWith(data) {
-  respond = () => ({ ok: true, status: 200, json: async () => data });
-}
+const site = simulateClientSite();
+const { window, document } = site;
 
 function widgetData({ widget, branding, place, reviews } = {}) {
   return {
@@ -51,15 +36,9 @@ function review(overrides) {
   };
 }
 
-function newHost() {
-  const host = document.createElement('div');
-  document.body.append(host);
-  return host;
-}
-
 async function render(data) {
-  respondWith(data);
-  const host = newHost();
+  site.respondWith(data);
+  const host = site.addWidget();
   await window.ReviewWidget.mount(host, 'w1');
   return { host, root: host.shadowRoot };
 }
@@ -67,41 +46,50 @@ async function render(data) {
 const text = (node) => node?.textContent.trim();
 const nextTick = () => new Promise((resolve) => setImmediate(resolve));
 
+let requestedAtLoad;
+
 before(async () => {
-  await import('../public/widget.js');
+  site.addWidget('already-on-page');
+  await site.loadScript();
+  requestedAtLoad = site.requests.map((r) => r.url);
 });
 
 beforeEach(() => {
-  requests = [];
+  site.requests.length = 0;
   document.body.textContent = '';
 });
 
 describe('Embed widget: loading', () => {
-  it('fetches widget data from the server the script was loaded from', async () => {
-    respondWith(widgetData());
-    await window.ReviewWidget.mount(newHost(), 'w 1');
+  it('mounts widgets already on the page as soon as the script loads', () => {
+    assert.deepEqual(requestedAtLoad, ['https://widgets.example/api/public/widgets/already-on-page']);
+  });
 
-    assert.equal(requests[0].url, 'https://client.example/api/public/widgets/w%201');
-    assert.equal(requests[0].options, undefined);
+  it('loads widget data from the server that served the script, not from the client site', async () => {
+    site.respondWith(widgetData());
+    await window.ReviewWidget.mount(site.addWidget(), 'w 1');
+
+    assert.equal(window.ReviewWidget.baseUrl, 'https://widgets.example');
+    assert.equal(site.requests[0].url, 'https://widgets.example/api/public/widgets/w%201');
+    assert.equal(site.requests[0].options, undefined);
   });
 
   it('bypasses the browser cache when asked for fresh data (dashboard preview)', async () => {
-    respondWith(widgetData());
-    await window.ReviewWidget.mount(newHost(), 'w1', { fresh: true });
+    site.respondWith(widgetData());
+    await window.ReviewWidget.mount(site.addWidget(), 'w1', { fresh: true });
 
-    assert.deepEqual(requests[0].options, { cache: 'no-store' });
+    assert.deepEqual(site.requests[0].options, { cache: 'no-store' });
   });
 
   it('does nothing for an element without a widget id', async () => {
-    await window.ReviewWidget.mount(newHost());
+    await window.ReviewWidget.mount(site.addWidget());
 
-    assert.equal(requests.length, 0);
+    assert.equal(site.requests.length, 0);
   });
 
   it('mounts every widget on the page, and only once', async () => {
-    respondWith(widgetData());
-    const first = newHost();
-    const second = newHost();
+    site.respondWith(widgetData());
+    const first = site.addWidget();
+    const second = site.addWidget();
     first.setAttribute('data-review-widget', 'a');
     second.setAttribute('data-review-widget', 'b');
 
@@ -109,14 +97,14 @@ describe('Embed widget: loading', () => {
     window.ReviewWidget.init();
     await nextTick();
 
-    assert.deepEqual(requests.map((r) => r.url.split('/').pop()), ['a', 'b']);
+    assert.deepEqual(site.requests.map((r) => r.url.split('/').pop()), ['a', 'b']);
     assert.ok(first.shadowRoot.querySelector('.rw'));
     assert.ok(second.shadowRoot.querySelector('.rw'));
   });
 
   it('can re-render into the same element', async () => {
     const { host } = await render(widgetData());
-    respondWith(widgetData({ place: { name: 'Harbor Plumbing' } }));
+    site.respondWith(widgetData({ place: { name: 'Harbor Plumbing' } }));
 
     await window.ReviewWidget.mount(host, 'w1');
 
@@ -126,8 +114,8 @@ describe('Embed widget: loading', () => {
 
   it("fails quietly, without breaking the client's site, when the widget cannot load", async (t) => {
     const warn = t.mock.method(console, 'warn', () => {});
-    respond = () => ({ ok: false, status: 404 });
-    const host = newHost();
+    site.respond = () => ({ ok: false, status: 404 });
+    const host = site.addWidget();
 
     await window.ReviewWidget.mount(host, 'missing');
 
