@@ -184,3 +184,157 @@ describe('HTTP API without an operator key', () => {
     }
   });
 });
+
+describe('HTTP API when things go wrong', () => {
+  let server;
+  let baseUrl;
+  let store;
+  let apiKey;
+  let otherKey;
+  let google;
+
+  before(async () => {
+    store = new Store(null);
+    ({ apiKey } = store.createAgency('Acme Local'));
+    ({ apiKey: otherKey } = store.createAgency('Rival Agency'));
+    // A Google that can be taken down, and that counts how often it is asked.
+    google = {
+      down: false,
+      calls: 0,
+      async getPlace(placeId) {
+        google.calls++;
+        if (google.down) throw new Error('Google Places API 503: upstream secret detail');
+        return { placeId, name: 'Smile Dental', rating: 4.8, userRatingCount: 1, mapsUrl: '', reviews: [] };
+      },
+      async searchPlaces() {
+        if (google.down) throw new Error('Google Places API 503: upstream secret detail');
+        return [];
+      },
+    };
+    const app = createApp({
+      store,
+      reviews: new ReviewService(google),
+      config: { publicUrl: 'https://widgets.example', demoMode: false },
+    });
+    server = app.listen(0);
+    await new Promise((resolve) => server.once('listening', resolve));
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  after(() => server.close());
+
+  beforeEach(() => {
+    google.down = false;
+    google.calls = 0;
+  });
+
+  const call = (path, { key = apiKey, method = 'GET', body, rawBody } = {}) =>
+    fetch(`${baseUrl}${path}`, {
+      method,
+      redirect: 'manual',
+      headers: {
+        ...(key ? { Authorization: `Bearer ${key}` } : {}),
+        ...(body || rawBody ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: rawBody ?? (body ? JSON.stringify(body) : undefined),
+    });
+
+  let placeCounter = 0;
+  const createWidget = async () => {
+    const res = await call('/api/admin/widgets', { method: 'POST', body: { placeId: `place-${++placeCounter}` } });
+    return (await res.json()).widget;
+  };
+
+  it('tells the visitor reviews are unavailable when Google is down and nothing is cached', async (t) => {
+    t.mock.method(console, 'error', () => {});
+    const widget = await createWidget();
+    google.down = true;
+
+    const res = await call(`/api/public/widgets/${widget.id}`, { key: null });
+
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), { error: 'Reviews are temporarily unavailable' });
+  });
+
+  it('reports a failed place search without exposing Google error details', async (t) => {
+    t.mock.method(console, 'error', () => {});
+    google.down = true;
+
+    const res = await call('/api/admin/places/search?q=smile');
+
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), { error: 'Place search failed' });
+  });
+
+  it('requires a search query', async () => {
+    const res = await call('/api/admin/places/search?q=%20');
+
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'Query parameter q is required' });
+  });
+
+  it("lets an agency refresh a widget's reviews, so the next view asks Google again", async () => {
+    const widget = await createWidget();
+    await call(`/api/public/widgets/${widget.id}`, { key: null });
+    await call(`/api/public/widgets/${widget.id}`, { key: null });
+    assert.equal(google.calls, 1, 'second view is served from the cache');
+
+    const res = await call(`/api/admin/widgets/${widget.id}/refresh`, { method: 'POST' });
+    await call(`/api/public/widgets/${widget.id}`, { key: null });
+
+    assert.equal(res.status, 204);
+    assert.equal(google.calls, 2);
+  });
+
+  it("does not let an agency refresh another agency's widget", async () => {
+    const widget = await createWidget();
+
+    const res = await call(`/api/admin/widgets/${widget.id}/refresh`, { key: otherKey, method: 'POST' });
+
+    assert.equal(res.status, 404);
+  });
+
+  it('serves the embed script to any website, cached for an hour', async () => {
+    const res = await call('/widget.js', { key: null });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('access-control-allow-origin'), '*');
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=3600');
+    assert.match(await res.text(), /window\.ReviewWidget/);
+  });
+
+  it('sends visitors of the root URL to the agency dashboard', async () => {
+    const res = await call('/', { key: null });
+
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/admin/');
+  });
+
+  it('rejects malformed JSON with a clear message', async () => {
+    const res = await call('/api/admin/widgets', { method: 'POST', rawBody: '{"placeId": ' });
+
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'Invalid JSON body' });
+  });
+
+  it('rejects an oversized request body as too large', async (t) => {
+    t.mock.method(console, 'error', () => {});
+    const res = await call('/api/admin/branding', { method: 'PUT', body: { brandName: 'x'.repeat(30_000) } });
+
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: 'Request body too large' });
+  });
+
+  it('hides internal error details from API clients', async (t) => {
+    const logged = t.mock.method(console, 'error', () => {});
+    t.mock.method(store, 'createWidget', () => {
+      throw new Error('EACCES: permission denied, open data/db.json');
+    });
+
+    const res = await call('/api/admin/widgets', { method: 'POST', body: { placeId: 'x' } });
+
+    assert.equal(res.status, 500);
+    assert.deepEqual(await res.json(), { error: 'Internal server error' });
+    assert.match(String(logged.mock.calls[0].arguments[0]), /EACCES/, 'the detail is logged for operators');
+  });
+});
