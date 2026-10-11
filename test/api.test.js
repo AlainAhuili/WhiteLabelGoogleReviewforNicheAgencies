@@ -347,12 +347,12 @@ describe('HTTP API: monthly Google request limit per widget', () => {
   let google;
   let now;
 
-  const start = async ({ limit = 2, reviews } = {}) => {
+  const start = async ({ limit = 2, reviews, demoMode = false } = {}) => {
     server?.close();
     const app = createApp({
       store,
       reviews: reviews ?? new ReviewService(google, { ttlSeconds: 60, now: () => now }),
-      config: { publicUrl: 'https://widgets.example', demoMode: false, googleRequestsPerWidgetPerMonth: limit },
+      config: { publicUrl: 'https://widgets.example', demoMode, googleRequestsPerWidgetPerMonth: limit },
       now: () => now,
     });
     server = app.listen(0);
@@ -476,6 +476,30 @@ describe('HTTP API: monthly Google request limit per widget', () => {
     const { widgets } = await (await call('/api/admin/widgets')).json();
 
     assert.deepEqual(widgets.find((w) => w.id === widget.id).googleUsage, { month: '2026-11', requests: 0, limit: 2 });
+  });
+
+  it('neither counts nor limits sample reviews in demo mode, where nothing is billed', async () => {
+    await start({ demoMode: true });
+    const widget = await createWidget();
+    for (let i = 0; i < 5; i++) {
+      assert.equal((await refresh(widget)).status, 204);
+      await view(widget);
+    }
+
+    const { widgets } = await (await call('/api/admin/widgets')).json();
+
+    assert.equal(google.calls, 5);
+    assert.equal(widgets[0].googleUsage, null);
+    assert.equal(store.googleRequests(widget.id, '2026-10'), 0);
+  });
+
+  it('ignores usage counted with a real Google key after switching to demo mode', async () => {
+    const widget = await createWidget();
+    store.recordGoogleRequest(widget.id, '2026-10');
+    store.recordGoogleRequest(widget.id, '2026-10');
+    await start({ demoMode: true });
+
+    assert.equal((await refresh(widget)).status, 204);
   });
 
   it('does not let an agency reset its own usage', async () => {

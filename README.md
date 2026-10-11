@@ -13,7 +13,7 @@ An embeddable Google reviews widget that marketing agencies can rebrand as their
 - **Multi-agency.** Each agency signs in with its own API key and can only see and edit its own widgets.
 - **Style isolation.** The widget renders in a Shadow DOM, so the client site's CSS can't break it and the widget can't break the site.
 - **Low Google API cost.** Reviews are cached in memory. Concurrent requests share one upstream call, and if Google is unavailable the widget keeps serving the last good data.
-- **Capped Google cost per widget.** Each widget may cause at most `GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH` Google requests per calendar month (default 200, about $5 at Places API prices). After that it keeps showing the reviews it already has, and refreshing it is refused until the next month.
+- **Capped Google cost per widget.** Each widget may cause at most `GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH` Google requests per calendar month (default 200, about $5 at Places API prices). After that it keeps showing the reviews it already has, and refreshing it is refused until the next month. Demo mode's sample reviews cost nothing, so they are neither counted nor limited.
 - **Demo mode.** Without a Google API key, the app serves sample reviews so you can try everything immediately.
 
 ## Quick start
@@ -91,7 +91,7 @@ Admin endpoints (send `Authorization: Bearer <api key>`):
 - `PATCH | DELETE /api/admin/widgets/:id`
 - `POST /api/admin/widgets/:id/refresh`: clears the cached reviews for this widget's place. Returns `429` once the widget has used its monthly Google requests
 
-Widgets returned by the admin API include `googleUsage` (`{ month, requests, limit }`): the Google requests the widget has caused this month, and its monthly limit (`null` when unlimited). The dashboard shows this on each widget and warns when the limit is reached.
+Widgets returned by the admin API include `googleUsage` (`{ month, requests, limit }`): the Google requests the widget has caused this month, and its monthly limit (`null` when unlimited). It is `null` in demo mode, where nothing is counted. The dashboard shows this on each widget and warns when the limit is reached.
 
 Operator endpoint (send `Authorization: Bearer <OPERATOR_API_KEY>`):
 

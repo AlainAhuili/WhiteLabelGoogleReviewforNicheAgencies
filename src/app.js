@@ -51,11 +51,13 @@ export function createApp({ store, reviews, config, now = Date.now }) {
 
   // ---- Google request allowance per widget --------------------------------
 
+  // Demo mode serves sample reviews, which cost nothing, so they are neither counted nor limited.
+  const tracksGoogleUsage = !config.demoMode;
   const currentMonth = () => new Date(now()).toISOString().slice(0, 7);
 
   function googleAllowanceUsed(widget, month) {
     const limit = config.googleRequestsPerWidgetPerMonth;
-    return Boolean(limit) && store.googleRequests(widget.id, month) >= limit;
+    return tracksGoogleUsage && Boolean(limit) && store.googleRequests(widget.id, month) >= limit;
   }
 
   // ---- Public, embeddable endpoints -------------------------------------
@@ -76,7 +78,7 @@ export function createApp({ store, reviews, config, now = Date.now }) {
       const month = currentMonth();
       place = await reviews.getPlace(widget.placeId, {
         mayAskGoogle: !googleAllowanceUsed(widget, month),
-        onAskGoogle: () => store.recordGoogleRequest(widget.id, month),
+        onAskGoogle: () => tracksGoogleUsage && store.recordGoogleRequest(widget.id, month),
       });
     } catch (err) {
       console.error(`Failed to load reviews for widget ${widget.id}:`, err.message);
@@ -139,11 +141,9 @@ export function createApp({ store, reviews, config, now = Date.now }) {
     return {
       ...widget,
       // This month's usage; the stored record may still describe an earlier month.
-      googleUsage: {
-        month,
-        requests: store.googleRequests(widget.id, month),
-        limit: config.googleRequestsPerWidgetPerMonth || null,
-      },
+      googleUsage: tracksGoogleUsage
+        ? { month, requests: store.googleRequests(widget.id, month), limit: config.googleRequestsPerWidgetPerMonth || null }
+        : null,
       reviewLink: `${config.publicUrl}/r/${widget.id}`,
       embedCode:
         `<div data-review-widget="${widget.id}"></div>\n` +

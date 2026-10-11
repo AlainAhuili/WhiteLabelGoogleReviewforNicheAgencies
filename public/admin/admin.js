@@ -171,11 +171,13 @@ function renderWidgetList() {
 }
 
 function allowanceUsedUp(w) {
+  if (!w.googleUsage) return false; // demo mode: nothing is counted
   const { requests, limit } = w.googleUsage;
   return Boolean(limit) && requests >= limit;
 }
 
 function googleUsageLine(usage) {
+  if (!usage) return ''; // demo mode: nothing is counted
   const line = document.createElement('div');
   line.className = 'usage';
   line.textContent = usage.limit
