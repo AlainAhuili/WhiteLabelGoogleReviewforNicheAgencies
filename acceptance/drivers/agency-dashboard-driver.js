@@ -13,13 +13,31 @@ export class AgencyDashboardDriver {
     return this.#browser.newPage();
   }
 
+  async #signIn(page, apiKey) {
+    await page.goto(`${config.baseUrl}/admin/`);
+    await page.fill('#api-key', apiKey);
+    await page.click('#login-form button[type=submit]');
+    await page.waitForSelector('#widget-list li, #no-widgets:not([hidden])', { timeout: 10_000 });
+  }
+
+  /** Opens a widget's editor and reads whether its reviews can be refreshed. */
+  async openWidget(apiKey, widgetName) {
+    const page = await this.#page();
+    try {
+      await this.#signIn(page, apiKey);
+      await page.locator('#widget-list li', { has: page.getByText(widgetName, { exact: true }) }).getByRole('button', { name: 'Edit' }).click();
+      const refresh = page.locator('#refresh-reviews');
+      await refresh.waitFor({ state: 'visible', timeout: 10_000 });
+      return { canRefreshReviews: await refresh.isEnabled(), refreshHint: await refresh.getAttribute('title') };
+    } finally {
+      await page.close();
+    }
+  }
+
   async listWidgets(apiKey) {
     const page = await this.#page();
     try {
-      await page.goto(`${config.baseUrl}/admin/`);
-      await page.fill('#api-key', apiKey);
-      await page.click('#login-form button[type=submit]');
-      await page.waitForSelector('#widget-list li, #no-widgets:not([hidden])', { timeout: 10_000 });
+      await this.#signIn(page, apiKey);
 
       return await page.evaluate(() =>
         [...document.querySelectorAll('#widget-list li')].map((li) => {

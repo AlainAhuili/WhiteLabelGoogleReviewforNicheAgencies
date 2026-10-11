@@ -38,9 +38,10 @@ describe('Capping what each widget can cost in Google requests', () => {
       used: 1,
       allowance: dsl.monthlyGoogleRequestsPerWidget,
     });
+    await agency.assertCanRefreshReviewsOnDashboard('Homepage widget');
   });
 
-  it('warns the agency on the dashboard when a widget has used its allowance', async () => {
+  it('warns the agency on the dashboard when a widget has used its allowance, and offers no refresh', async () => {
     const { google, agency, visitor } = dsl;
     await google.businessHasReviews('Lakeside Vets', { reviews: [{ stars: 4 }] });
     await agency.signsUp();
@@ -51,6 +52,7 @@ describe('Capping what each widget can cost in Google requests', () => {
     }
 
     await agency.assertDashboardWarnsAllowanceUsedUp('Homepage widget');
+    await agency.assertCannotRefreshReviewsOnDashboard('Homepage widget');
   });
 
   it("does not limit the agency's other widgets", async () => {

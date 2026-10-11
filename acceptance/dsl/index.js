@@ -148,6 +148,17 @@ class AgencyDsl {
     assert.equal(entry.allowanceUsedUp, true, `Expected the dashboard to warn that "${widget}" has used its allowance`);
   }
 
+  async assertCanRefreshReviewsOnDashboard(widget, { as = DEFAULT_AGENCY } = {}) {
+    const editor = await this.dashboard.openWidget(this.#agency(as).apiKey, this.aliases.name(widget));
+    assert.equal(editor.canRefreshReviews, true, `Expected "Refresh reviews" to be available for "${widget}"`);
+  }
+
+  async assertCannotRefreshReviewsOnDashboard(widget, { as = DEFAULT_AGENCY } = {}) {
+    const editor = await this.dashboard.openWidget(this.#agency(as).apiKey, this.aliases.name(widget));
+    assert.equal(editor.canRefreshReviews, false, `Expected "Refresh reviews" to be unavailable for "${widget}"`);
+    assert.match(editor.refreshHint, /used its Google requests/, 'The dashboard should say why');
+  }
+
   async assertCannotRefreshReviews(widget, { as = DEFAULT_AGENCY } = {}) {
     const status = await this.driver.tryRefreshWidget(this.#agency(as).apiKey, this.widget(widget).id);
     assert.equal(status, 429, `Refreshing "${widget}" should be refused once its Google allowance is used`);
