@@ -338,3 +338,139 @@ describe('HTTP API when things go wrong', () => {
     assert.match(String(logged.mock.calls[0].arguments[0]), /EACCES/, 'the detail is logged for operators');
   });
 });
+
+describe('HTTP API: monthly Google request limit per widget', () => {
+  let server;
+  let baseUrl;
+  let store;
+  let apiKey;
+  let google;
+  let now;
+
+  const start = async ({ limit = 2, reviews } = {}) => {
+    server?.close();
+    const app = createApp({
+      store,
+      reviews: reviews ?? new ReviewService(google, { ttlSeconds: 60, now: () => now }),
+      config: { publicUrl: 'https://widgets.example', demoMode: false, googleRequestsPerWidgetPerMonth: limit },
+      now: () => now,
+    });
+    server = app.listen(0);
+    await new Promise((resolve) => server.once('listening', resolve));
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+  };
+
+  beforeEach(async () => {
+    store = new Store(null);
+    ({ apiKey } = store.createAgency('Acme Local'));
+    now = Date.parse('2026-10-15T12:00:00Z');
+    google = {
+      calls: 0,
+      async getPlace(placeId) {
+        google.calls++;
+        return { placeId, name: 'Smile Dental', rating: 4.8, userRatingCount: 1, mapsUrl: '', reviews: [] };
+      },
+    };
+    await start();
+  });
+
+  after(() => server.close());
+
+  const call = (path, { key = apiKey, method = 'GET', body } = {}) =>
+    fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        ...(key ? { Authorization: `Bearer ${key}` } : {}),
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+  const createWidget = async () =>
+    (await (await call('/api/admin/widgets', { method: 'POST', body: { placeId: 'place-1' } })).json()).widget;
+  const view = (widget) => call(`/api/public/widgets/${widget.id}`, { key: null });
+  const refresh = (widget) => call(`/api/admin/widgets/${widget.id}/refresh`, { method: 'POST' });
+  const anHourLater = () => (now += 3_600_000);
+
+  it('counts only views that ask Google, and shows the agency its usage', async () => {
+    const widget = await createWidget();
+    await view(widget);
+    await view(widget);
+
+    const { widgets } = await (await call('/api/admin/widgets')).json();
+
+    assert.equal(google.calls, 1);
+    assert.deepEqual(widgets[0].googleUsage, { month: '2026-10', requests: 1 });
+  });
+
+  it('keeps showing cached reviews once the allowance is used, without asking Google', async () => {
+    const widget = await createWidget();
+    await view(widget);
+    anHourLater();
+    await view(widget);
+    anHourLater();
+
+    const res = await view(widget);
+
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).place.name, 'Smile Dental');
+    assert.equal(google.calls, 2);
+  });
+
+  it('refuses to refresh a widget that has used its allowance, saying why', async () => {
+    const widget = await createWidget();
+    await view(widget);
+    await refresh(widget);
+    await view(widget);
+
+    const res = await refresh(widget);
+
+    assert.equal(res.status, 429);
+    assert.deepEqual(await res.json(), { error: 'This widget has used its 2 Google requests for this month' });
+  });
+
+  it('starts a new allowance each calendar month', async () => {
+    const widget = await createWidget();
+    await view(widget);
+    await refresh(widget);
+    await view(widget);
+    now = Date.parse('2026-11-01T00:00:00Z');
+
+    assert.equal((await refresh(widget)).status, 204);
+    await view(widget);
+    assert.equal(google.calls, 3);
+  });
+
+  it('fails quietly if the allowance is used and nothing is cached, e.g. after a restart', async (t) => {
+    t.mock.method(console, 'error', () => {});
+    const widget = await createWidget();
+    await view(widget);
+    await refresh(widget);
+    await view(widget);
+    await start({ reviews: new ReviewService(google) }); // a restart empties the in-memory cache
+
+    const res = await view(widget);
+
+    assert.equal(res.status, 502);
+    assert.equal(google.calls, 2);
+  });
+
+  it('does not limit anything when the limit is 0', async () => {
+    await start({ limit: 0 });
+    const widget = await createWidget();
+    for (let i = 0; i < 5; i++) {
+      assert.equal((await refresh(widget)).status, 204);
+      await view(widget);
+    }
+
+    assert.equal(google.calls, 5);
+  });
+
+  it('does not let an agency reset its own usage', async () => {
+    const widget = await createWidget();
+
+    const res = await call(`/api/admin/widgets/${widget.id}`, { method: 'PATCH', body: { googleUsage: { month: '2026-10', requests: 0 } } });
+
+    assert.equal(res.status, 400);
+  });
+});

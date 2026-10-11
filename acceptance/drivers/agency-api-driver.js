@@ -39,6 +39,12 @@ export class AgencyApiDriver {
     );
   }
 
+  /** Returns the HTTP status rather than throwing, so tests can assert on refusals. */
+  async tryRefreshWidget(apiKey, widgetId) {
+    const res = await request(`/api/admin/widgets/${widgetId}/refresh`, { key: apiKey, method: 'POST' });
+    return res.status;
+  }
+
   async followReviewLink(reviewLink) {
     const { pathname } = new URL(reviewLink);
     const res = await request(pathname);

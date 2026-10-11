@@ -54,6 +54,19 @@ describe('Store (JSON file)', () => {
     assert.deepEqual(restart().listWidgets(agency.id), []);
   });
 
+  it("keeps each widget's monthly Google request count across a restart, starting again each month", () => {
+    const { agency } = new Store(file).createAgency('Acme Local');
+    const widget = restart().createWidget(agency.id, { name: 'Homepage' });
+    restart().recordGoogleRequest(widget.id, '2026-10');
+    restart().recordGoogleRequest(widget.id, '2026-10');
+
+    assert.equal(restart().googleRequests(widget.id, '2026-10'), 2);
+    assert.equal(restart().googleRequests(widget.id, '2026-11'), 0);
+
+    restart().recordGoogleRequest(widget.id, '2026-11');
+    assert.equal(restart().googleRequests(widget.id, '2026-11'), 1);
+  });
+
   it('never writes the plaintext API key to disk', () => {
     const { apiKey } = new Store(file).createAgency('Acme Local');
 

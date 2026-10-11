@@ -15,6 +15,8 @@ import { join } from 'node:path';
 const APP_PORT = Number(process.env.APP_PORT) || 3000;
 const STUB_PORT = Number(process.env.STUB_PORT) || 3999;
 const OPERATOR_API_KEY = process.env.OPERATOR_API_KEY || 'acceptance-operator-key';
+// Small, so specs can reach a widget's monthly Google allowance quickly.
+const GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH = '3';
 const IMAGE = process.env.IMAGE;
 const CONTAINER = `reputation-widget-acceptance-${process.pid}`;
 const BASE_URL = `http://localhost:${APP_PORT}`;
@@ -57,6 +59,7 @@ function deploySystemUnderTest() {
     PUBLIC_URL: BASE_URL,
     GOOGLE_PLACES_API_KEY: 'acceptance-stub-key',
     OPERATOR_API_KEY,
+    GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH,
   };
 
   if (IMAGE) {
@@ -105,6 +108,7 @@ async function main() {
     BASE_URL,
     GOOGLE_STUB_URL: `http://localhost:${STUB_PORT}`,
     OPERATOR_API_KEY,
+    GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH,
   };
 
   try {

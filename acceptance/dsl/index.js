@@ -16,6 +16,7 @@ import { AgencyApiDriver } from '../drivers/agency-api-driver.js';
 import { ApiVisitorDriver } from '../drivers/api-visitor-driver.js';
 import { BrowserVisitorDriver } from '../drivers/browser-visitor-driver.js';
 import { GoogleStubDriver } from '../drivers/google-stub-driver.js';
+import { config } from '../config.js';
 
 const DEFAULT_AGENCY = 'Default Agency';
 
@@ -127,6 +128,11 @@ class AgencyDsl {
     await this.driver.refreshWidget(this.#agency(as).apiKey, this.widget(widget).id);
   }
 
+  async assertCannotRefreshReviews(widget, { as = DEFAULT_AGENCY } = {}) {
+    const status = await this.driver.tryRefreshWidget(this.#agency(as).apiKey, this.widget(widget).id);
+    assert.equal(status, 429, `Refreshing "${widget}" should be refused once its Google allowance is used`);
+  }
+
   async assertCannotChangeWidget(widget, { as }) {
     const status = await this.driver.tryUpdateWidget(this.#agency(as).apiKey, this.widget(widget).id, { layout: 'list' });
     assert.equal(status, 404, `Agency "${as}" should not be able to change widget "${widget}"`);
@@ -234,6 +240,7 @@ export function createDsl({ channel = 'api' } = {}) {
     google,
     agency,
     visitor,
+    monthlyGoogleRequestsPerWidget: config.googleRequestsPerWidgetPerMonth,
     close: () => visitorDriver.close(),
   };
 }

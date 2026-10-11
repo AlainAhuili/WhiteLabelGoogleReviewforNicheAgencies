@@ -107,6 +107,19 @@ export class Store {
     return widget;
   }
 
+  /** Google requests this widget has caused in a month ("YYYY-MM"). */
+  googleRequests(widgetId, month) {
+    const usage = this.getWidget(widgetId)?.googleUsage;
+    return usage?.month === month ? usage.requests : 0;
+  }
+
+  /** Counts one more Google request for this widget in a month ("YYYY-MM"). */
+  recordGoogleRequest(widgetId, month) {
+    const widget = this.getWidget(widgetId);
+    widget.googleUsage = { month, requests: this.googleRequests(widgetId, month) + 1 };
+    this.#save();
+  }
+
   deleteWidget(id) {
     this.data.widgets = this.data.widgets.filter((w) => w.id !== id);
     this.#save();

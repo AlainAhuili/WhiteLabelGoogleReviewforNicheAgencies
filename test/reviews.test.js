@@ -53,6 +53,39 @@ describe('ReviewService', () => {
     await assert.rejects(new ReviewService(client).getPlace('p'), /boom/);
   });
 
+  it('reports when it asks Google, but not when it serves the cache or joins a request in flight', async () => {
+    const client = fakeClient();
+    const service = new ReviewService(client);
+    let asked = 0;
+    const onAskGoogle = () => asked++;
+
+    await Promise.all([service.getPlace('p', { onAskGoogle }), service.getPlace('p', { onAskGoogle })]);
+    await service.getPlace('p', { onAskGoogle });
+
+    assert.equal(asked, 1);
+    assert.equal(client.calls, 1);
+  });
+
+  it('serves stale reviews instead of asking Google when not allowed to', async () => {
+    let now = 0;
+    const client = fakeClient();
+    const service = new ReviewService(client, { ttlSeconds: 60, now: () => now });
+    await service.getPlace('p');
+    now = 61_000;
+
+    const place = await service.getPlace('p', { mayAskGoogle: false, onAskGoogle: () => assert.fail('asked Google') });
+
+    assert.equal(place.version, 1);
+    assert.equal(client.calls, 1);
+  });
+
+  it('fails when not allowed to ask Google and nothing is cached', async () => {
+    const client = fakeClient();
+
+    await assert.rejects(new ReviewService(client).getPlace('p', { mayAskGoogle: false }), /may not ask Google/);
+    assert.equal(client.calls, 0);
+  });
+
   it('invalidate forces a refetch', async () => {
     const client = fakeClient();
     const service = new ReviewService(client);

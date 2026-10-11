@@ -4,4 +4,6 @@ export const config = {
   googleStubUrl: (process.env.GOOGLE_STUB_URL || 'http://localhost:3999').replace(/\/+$/, ''),
   operatorApiKey: process.env.OPERATOR_API_KEY || 'acceptance-operator-key',
   chromiumPath: process.env.CHROMIUM_PATH || undefined,
+  // Must match the system under test's GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH.
+  googleRequestsPerWidgetPerMonth: Number(process.env.GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH) || 3,
 };

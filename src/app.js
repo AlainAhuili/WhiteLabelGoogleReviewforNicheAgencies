@@ -38,7 +38,7 @@ function publicAgency(agency) {
  * @param {import('./reviews.js').ReviewService} deps.reviews
  * @param {{ publicUrl: string, demoMode: boolean, version?: string, operatorApiKey?: string }} deps.config
  */
-export function createApp({ store, reviews, config }) {
+export function createApp({ store, reviews, config, now = Date.now }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '20kb' }));
@@ -48,6 +48,15 @@ export function createApp({ store, reviews, config }) {
     res.set('Cache-Control', 'no-store');
     res.json({ status: 'ok', version: config.version || 'dev', demoMode: config.demoMode });
   });
+
+  // ---- Google request allowance per widget --------------------------------
+
+  const currentMonth = () => new Date(now()).toISOString().slice(0, 7);
+
+  function googleAllowanceUsed(widget, month) {
+    const limit = config.googleRequestsPerWidgetPerMonth;
+    return Boolean(limit) && store.googleRequests(widget.id, month) >= limit;
+  }
 
   // ---- Public, embeddable endpoints -------------------------------------
 
@@ -64,7 +73,11 @@ export function createApp({ store, reviews, config }) {
 
     let place;
     try {
-      place = await reviews.getPlace(widget.placeId);
+      const month = currentMonth();
+      place = await reviews.getPlace(widget.placeId, {
+        mayAskGoogle: !googleAllowanceUsed(widget, month),
+        onAskGoogle: () => store.recordGoogleRequest(widget.id, month),
+      });
     } catch (err) {
       console.error(`Failed to load reviews for widget ${widget.id}:`, err.message);
       return res.status(502).json({ error: 'Reviews are temporarily unavailable' });
@@ -177,6 +190,11 @@ export function createApp({ store, reviews, config }) {
   admin.post('/widgets/:id/refresh', (req, res) => {
     const widget = ownWidget(req, res);
     if (!widget) return;
+    if (googleAllowanceUsed(widget, currentMonth())) {
+      return res.status(429).json({
+        error: `This widget has used its ${config.googleRequestsPerWidgetPerMonth} Google requests for this month`,
+      });
+    }
     reviews.invalidate(widget.placeId);
     res.status(204).end();
   });

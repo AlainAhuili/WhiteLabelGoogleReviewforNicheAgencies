@@ -12,11 +12,22 @@ export class ReviewService {
     this.inFlight = new Map(); // placeId -> Promise
   }
 
-  async getPlace(placeId) {
+  /**
+   * @param {string} placeId
+   * @param {{ mayAskGoogle?: boolean, onAskGoogle?: () => void }} [options]
+   *   mayAskGoogle: false serves the cached place even if stale, and never calls Google.
+   *   onAskGoogle: called when this call (not a concurrent one it joins) asks Google.
+   */
+  async getPlace(placeId, { mayAskGoogle = true, onAskGoogle } = {}) {
     const cached = this.cache.get(placeId);
     if (cached && cached.expiresAt > this.now()) return cached.place;
 
     if (!this.inFlight.has(placeId)) {
+      if (!mayAskGoogle) {
+        if (cached) return cached.place;
+        throw new Error(`No cached reviews for ${placeId}, and this widget may not ask Google again this month`);
+      }
+      onAskGoogle?.();
       const request = this.client
         .getPlace(placeId)
         .then((place) => {

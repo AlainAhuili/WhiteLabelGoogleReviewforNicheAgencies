@@ -56,7 +56,7 @@ export function createGooglePlacesStub() {
       if ((m = /^\/__stub\/places\/([^/]+)$/.exec(path)) && req.method === 'PUT') {
         const id = decodeURIComponent(m[1]);
         places.set(id, { ...(await readJson(req)), id });
-        requestCounts.set(id, 0);
+        if (!requestCounts.has(id)) requestCounts.set(id, 0); // updating a place keeps its request history
         return send(res, 204);
       }
 
