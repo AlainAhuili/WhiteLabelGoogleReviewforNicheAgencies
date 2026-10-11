@@ -113,6 +113,8 @@ button:disabled { opacity: 0.6; cursor: default; }
   border-radius: 10px;
 }
 .widget-list .meta { color: var(--muted); font-size: 13px; }
+.widget-list .usage { color: var(--muted); font-size: 13px; }
+.widget-list .usage.used-up { color: var(--danger); font-weight: 600; }
 .widget-list .buttons { display: flex; gap: 8px; }
 
 .copy-row { display: flex; gap: 8px; align-items: flex-start; }

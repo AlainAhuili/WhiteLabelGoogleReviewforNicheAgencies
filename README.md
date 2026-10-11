@@ -91,7 +91,7 @@ Admin endpoints (send `Authorization: Bearer <api key>`):
 - `PATCH | DELETE /api/admin/widgets/:id`
 - `POST /api/admin/widgets/:id/refresh`: clears the cached reviews for this widget's place. Returns `429` once the widget has used its monthly Google requests
 
-Widgets returned by the admin API include `googleUsage` (`{ month, requests }`), the Google requests the widget has caused this month.
+Widgets returned by the admin API include `googleUsage` (`{ month, requests, limit }`): the Google requests the widget has caused this month, and its monthly limit (`null` when unlimited). The dashboard shows this on each widget and warns when the limit is reached.
 
 Operator endpoint (send `Authorization: Bearer <OPERATOR_API_KEY>`):
 

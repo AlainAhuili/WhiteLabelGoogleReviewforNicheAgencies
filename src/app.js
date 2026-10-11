@@ -135,8 +135,15 @@ export function createApp({ store, reviews, config, now = Date.now }) {
   }
 
   function withLinks(widget) {
+    const month = currentMonth();
     return {
       ...widget,
+      // This month's usage; the stored record may still describe an earlier month.
+      googleUsage: {
+        month,
+        requests: store.googleRequests(widget.id, month),
+        limit: config.googleRequestsPerWidgetPerMonth || null,
+      },
       reviewLink: `${config.publicUrl}/r/${widget.id}`,
       embedCode:
         `<div data-review-widget="${widget.id}"></div>\n` +

@@ -23,7 +23,7 @@ export default [
   },
   {
     // Browser-driver callbacks run inside the page.
-    files: ['acceptance/drivers/browser-visitor-driver.js'],
+    files: ['acceptance/drivers/browser-visitor-driver.js', 'acceptance/drivers/agency-dashboard-driver.js'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 ];

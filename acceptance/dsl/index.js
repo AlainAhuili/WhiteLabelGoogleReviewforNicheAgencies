@@ -13,6 +13,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { AgencyApiDriver } from '../drivers/agency-api-driver.js';
+import { AgencyDashboardDriver } from '../drivers/agency-dashboard-driver.js';
 import { ApiVisitorDriver } from '../drivers/api-visitor-driver.js';
 import { BrowserVisitorDriver } from '../drivers/browser-visitor-driver.js';
 import { GoogleStubDriver } from '../drivers/google-stub-driver.js';
@@ -82,9 +83,17 @@ class AgencyDsl {
   #agencies = new Map(); // agency alias -> { apiKey }
   #widgets = new Map(); // widget alias -> widget
 
-  constructor(aliases, driver) {
+  constructor(aliases, driver, dashboard) {
     this.aliases = aliases;
     this.driver = driver;
+    this.dashboard = dashboard;
+  }
+
+  async #dashboardEntry(widget, as) {
+    const entries = await this.dashboard.listWidgets(this.#agency(as).apiKey);
+    const entry = entries.find((e) => e.name === this.aliases.name(widget));
+    assert.ok(entry, `Expected "${widget}" on the dashboard`);
+    return entry;
   }
 
   #agency(alias) {
@@ -126,6 +135,17 @@ class AgencyDsl {
 
   async refreshesReviews(widget, { as = DEFAULT_AGENCY } = {}) {
     await this.driver.refreshWidget(this.#agency(as).apiKey, this.widget(widget).id);
+  }
+
+  async assertDashboardShowsGoogleRequests(widget, { used, allowance, as = DEFAULT_AGENCY }) {
+    const entry = await this.#dashboardEntry(widget, as);
+    assert.deepEqual(entry.googleRequests, { used, allowance });
+    assert.equal(entry.allowanceUsedUp, false, `"${widget}" should not be shown as having used its allowance`);
+  }
+
+  async assertDashboardWarnsAllowanceUsedUp(widget, { as = DEFAULT_AGENCY } = {}) {
+    const entry = await this.#dashboardEntry(widget, as);
+    assert.equal(entry.allowanceUsedUp, true, `Expected the dashboard to warn that "${widget}" has used its allowance`);
   }
 
   async assertCannotRefreshReviews(widget, { as = DEFAULT_AGENCY } = {}) {
@@ -232,8 +252,10 @@ export function createDsl({ channel = 'api' } = {}) {
   const agencyDriver = new AgencyApiDriver();
   const visitorDriver = channel === 'browser' ? new BrowserVisitorDriver() : new ApiVisitorDriver();
 
+  const dashboard = new AgencyDashboardDriver();
+
   const google = new GoogleDsl(aliases, new GoogleStubDriver());
-  const agency = new AgencyDsl(aliases, agencyDriver);
+  const agency = new AgencyDsl(aliases, agencyDriver, dashboard);
   const visitor = new VisitorDsl(aliases, agency, visitorDriver, agencyDriver);
 
   return {
@@ -241,7 +263,7 @@ export function createDsl({ channel = 'api' } = {}) {
     agency,
     visitor,
     monthlyGoogleRequestsPerWidget: config.googleRequestsPerWidgetPerMonth,
-    close: () => visitorDriver.close(),
+    close: () => Promise.all([visitorDriver.close(), dashboard.close()]),
   };
 }
 

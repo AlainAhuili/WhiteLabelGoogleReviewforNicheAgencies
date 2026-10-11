@@ -26,6 +26,33 @@ describe('Capping what each widget can cost in Google requests', () => {
     await google.assertWasAskedAboutBusinessTimes('Lakeside Vets', dsl.monthlyGoogleRequestsPerWidget);
   });
 
+  it("shows the agency each widget's Google requests this month on the dashboard", async () => {
+    const { google, agency, visitor } = dsl;
+    await google.businessHasReviews('Lakeside Vets', { reviews: [{ stars: 4 }] });
+    await agency.signsUp();
+    await agency.publishesWidget('Homepage widget', { business: 'Lakeside Vets' });
+    await visitor.viewsWidget('Homepage widget');
+    await visitor.viewsWidget('Homepage widget');
+
+    await agency.assertDashboardShowsGoogleRequests('Homepage widget', {
+      used: 1,
+      allowance: dsl.monthlyGoogleRequestsPerWidget,
+    });
+  });
+
+  it('warns the agency on the dashboard when a widget has used its allowance', async () => {
+    const { google, agency, visitor } = dsl;
+    await google.businessHasReviews('Lakeside Vets', { reviews: [{ stars: 4 }] });
+    await agency.signsUp();
+    await agency.publishesWidget('Homepage widget', { business: 'Lakeside Vets' });
+    for (let i = 0; i < dsl.monthlyGoogleRequestsPerWidget; i++) {
+      if (i > 0) await agency.refreshesReviews('Homepage widget');
+      await visitor.viewsWidget('Homepage widget');
+    }
+
+    await agency.assertDashboardWarnsAllowanceUsedUp('Homepage widget');
+  });
+
   it("does not limit the agency's other widgets", async () => {
     const { google, agency, visitor } = dsl;
     await google.businessHasReviews('Lakeside Vets', { reviews: [{ stars: 4 }] });

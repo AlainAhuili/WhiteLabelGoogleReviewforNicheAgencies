@@ -150,7 +150,7 @@ function renderWidgetList() {
     const meta = document.createElement('div');
     meta.className = 'meta';
     meta.textContent = `${LAYOUT_LABELS[w.layout]} · ${w.minRating}★+ · ${w.id}`;
-    info.append(name, meta);
+    info.append(name, meta, googleUsageLine(w.googleUsage));
 
     const buttons = document.createElement('div');
     buttons.className = 'buttons';
@@ -167,6 +167,35 @@ function renderWidgetList() {
     li.append(info, buttons);
     list.append(li);
   }
+  updateRefreshButton();
+}
+
+function allowanceUsedUp(w) {
+  const { requests, limit } = w.googleUsage;
+  return Boolean(limit) && requests >= limit;
+}
+
+function googleUsageLine(usage) {
+  const line = document.createElement('div');
+  line.className = 'usage';
+  line.textContent = usage.limit
+    ? `Google requests this month: ${usage.requests} of ${usage.limit}`
+    : `Google requests this month: ${usage.requests}`;
+  if (usage.limit && usage.requests >= usage.limit) {
+    line.classList.add('used-up');
+    line.textContent += ". Limit reached: reviews won't update until next month.";
+  }
+  return line;
+}
+
+// Refreshing asks Google again, so it is unavailable once the allowance is used up.
+function updateRefreshButton() {
+  const w = widgets.find((x) => x.id === editingId);
+  const usedUp = Boolean(w) && allowanceUsedUp(w);
+  $('refresh-reviews').disabled = usedUp;
+  $('refresh-reviews').title = usedUp
+    ? 'This widget has used its Google requests for this month'
+    : 'Fetch fresh reviews from Google';
 }
 
 async function deleteWidget(w) {
@@ -186,6 +215,7 @@ const form = $('widget-form');
 
 function openEditor(w) {
   editingId = w ? w.id : null;
+  updateRefreshButton();
   $('editor-title').textContent = w ? `Edit: ${w.name || w.id}` : 'New widget';
   $('form-error').textContent = '';
   $('place-results').textContent = '';
@@ -311,7 +341,7 @@ function renderPreview(id) {
   // A fresh host element so the widget re-fetches and re-renders from scratch.
   const host = document.createElement('div');
   $('preview').append(host);
-  window.ReviewWidget.mount(host, id, { fresh: true });
+  window.ReviewWidget.mount(host, id, { fresh: true }).then(() => loadWidgets().catch(() => {}));
 }
 
 $('refresh-reviews').addEventListener('click', async () => {

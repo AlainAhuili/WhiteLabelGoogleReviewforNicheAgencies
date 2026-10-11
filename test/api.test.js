@@ -400,7 +400,7 @@ describe('HTTP API: monthly Google request limit per widget', () => {
     const { widgets } = await (await call('/api/admin/widgets')).json();
 
     assert.equal(google.calls, 1);
-    assert.deepEqual(widgets[0].googleUsage, { month: '2026-10', requests: 1 });
+    assert.deepEqual(widgets[0].googleUsage, { month: '2026-10', requests: 1, limit: 2 });
   });
 
   it('keeps showing cached reviews once the allowance is used, without asking Google', async () => {
@@ -464,6 +464,18 @@ describe('HTTP API: monthly Google request limit per widget', () => {
     }
 
     assert.equal(google.calls, 5);
+    const { widgets } = await (await call('/api/admin/widgets')).json();
+    assert.deepEqual(widgets[0].googleUsage, { month: '2026-10', requests: 5, limit: null });
+  });
+
+  it("reports this month's usage, not an earlier month's", async () => {
+    const widget = await createWidget();
+    await view(widget);
+    now = Date.parse('2026-11-01T00:00:00Z');
+
+    const { widgets } = await (await call('/api/admin/widgets')).json();
+
+    assert.deepEqual(widgets.find((w) => w.id === widget.id).googleUsage, { month: '2026-11', requests: 0, limit: 2 });
   });
 
   it('does not let an agency reset its own usage', async () => {
