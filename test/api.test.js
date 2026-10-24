@@ -14,8 +14,8 @@ describe('HTTP API', () => {
 
   before(async () => {
     store = new Store(null);
-    ({ apiKey } = store.createAgency('Acme Local'));
-    ({ apiKey: otherKey } = store.createAgency('Rival Agency'));
+    ({ apiKey } = await store.createAgency('Acme Local'));
+    ({ apiKey: otherKey } = await store.createAgency('Rival Agency'));
     const reviews = new ReviewService(new DemoPlacesClient());
     const app = createApp({ store, reviews, config: { publicUrl: 'https://widgets.example', demoMode: true, version: '1.2.3', operatorApiKey: 'op_secret' } });
     server = app.listen(0);
@@ -121,7 +121,7 @@ describe('HTTP API', () => {
     assert.equal(patch.status, 404);
     const del = await call(`/api/admin/widgets/${widget.id}`, { key: otherKey, method: 'DELETE' });
     assert.equal(del.status, 404);
-    assert.ok(store.getWidget(widget.id));
+    assert.ok(await store.getWidget(widget.id));
   });
 
   it('updates and deletes a widget', async () => {
@@ -195,8 +195,8 @@ describe('HTTP API when things go wrong', () => {
 
   before(async () => {
     store = new Store(null);
-    ({ apiKey } = store.createAgency('Acme Local'));
-    ({ apiKey: otherKey } = store.createAgency('Rival Agency'));
+    ({ apiKey } = await store.createAgency('Acme Local'));
+    ({ apiKey: otherKey } = await store.createAgency('Rival Agency'));
     // A Google that can be taken down, and that counts how often it is asked.
     google = {
       down: false,
@@ -362,7 +362,7 @@ describe('HTTP API: monthly Google request limit per widget', () => {
 
   beforeEach(async () => {
     store = new Store(null);
-    ({ apiKey } = store.createAgency('Acme Local'));
+    ({ apiKey } = await store.createAgency('Acme Local'));
     now = Date.parse('2026-10-15T12:00:00Z');
     google = {
       calls: 0,
@@ -401,6 +401,19 @@ describe('HTTP API: monthly Google request limit per widget', () => {
 
     assert.equal(google.calls, 1);
     assert.deepEqual(widgets[0].googleUsage, { month: '2026-10', requests: 1, limit: 2 });
+  });
+
+  it('still shows reviews when a Google request cannot be counted, and logs why', async (t) => {
+    const logged = t.mock.method(console, 'error', () => {});
+    t.mock.method(store, 'recordGoogleRequest', async () => {
+      throw new Error('Firestore unavailable');
+    });
+    const widget = await createWidget();
+
+    const res = await view(widget);
+
+    assert.equal(res.status, 200);
+    assert.match(logged.mock.calls[0].arguments.join(' '), /Failed to count a Google request.*Firestore unavailable/);
   });
 
   it('keeps showing cached reviews once the allowance is used, without asking Google', async () => {
@@ -490,13 +503,13 @@ describe('HTTP API: monthly Google request limit per widget', () => {
 
     assert.equal(google.calls, 5);
     assert.equal(widgets[0].googleUsage, null);
-    assert.equal(store.googleRequests(widget.id, '2026-10'), 0);
+    assert.equal(await store.googleRequests(widget.id, '2026-10'), 0);
   });
 
   it('ignores usage counted with a real Google key after switching to demo mode', async () => {
     const widget = await createWidget();
-    store.recordGoogleRequest(widget.id, '2026-10');
-    store.recordGoogleRequest(widget.id, '2026-10');
+    await store.recordGoogleRequest(widget.id, '2026-10');
+    await store.recordGoogleRequest(widget.id, '2026-10');
     await start({ demoMode: true });
 
     assert.equal((await refresh(widget)).status, 204);

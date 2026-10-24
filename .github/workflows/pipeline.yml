@@ -46,8 +46,18 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The store tests run against both the JSON file and the Firestore emulator.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          install_components: cloud-firestore-emulator
+
       - name: Unit and component tests (coverage gate)
-        run: npm test
+        run: npm run test:firestore
 
       - name: Dependency audit
         run: npm audit --omit=dev --audit-level=high

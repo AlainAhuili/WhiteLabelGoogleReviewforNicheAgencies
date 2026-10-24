@@ -12,6 +12,7 @@ An embeddable Google reviews widget that marketing agencies can rebrand as their
 - **Review request link.** A short `/r/<widget-id>` link opens the Google "write a review" form for the business. Use it in follow-up emails, SMS messages or QR codes.
 - **Multi-agency.** Each agency signs in with its own API key and can only see and edit its own widgets.
 - **Style isolation.** The widget renders in a Shadow DOM, so the client site's CSS can't break it and the widget can't break the site.
+- **File or Firestore storage.** A JSON file for local and single-server installs, or Firestore when hosting, so data survives redeploys and several server instances can share it.
 - **Low Google API cost.** Reviews are cached in memory. Concurrent requests share one upstream call, and if Google is unavailable the widget keeps serving the last good data.
 - **Capped Google cost per widget.** Each widget may cause at most `GOOGLE_REQUESTS_PER_WIDGET_PER_MONTH` Google requests per calendar month (default 200, about $5 at Places API prices). After that it keeps showing the reviews it already has, and refreshing it is refused until the next month. Demo mode's sample reviews cost nothing, so they are neither counted nor limited.
 - **Demo mode.** Without a Google API key, the app serves sample reviews so you can try everything immediately.
@@ -71,7 +72,24 @@ For single-page apps, you can mount a widget manually with `window.ReviewWidget.
 | `OPERATOR_API_KEY` | (empty) | Turns on `POST /api/operator/agencies` for provisioning agencies. When set, no first agency is created automatically |
 | `GOOGLE_PLACES_BASE_URL` | Google's API | Override for the Places API endpoint (the acceptance tests point it at a stub) |
 | `APP_VERSION` | `dev` | Build version reported by `/healthz` (set automatically in the Docker image) |
-| `DATA_FILE` | `data/db.json` | JSON file that stores agencies and widgets |
+| `STORE` | `file` | Where agencies and widgets are stored: `file` or `firestore` |
+| `DATA_FILE` | `data/db.json` | JSON file that stores agencies and widgets (`STORE=file`) |
+| `FIRESTORE_PROJECT_ID` | (empty) | Google Cloud project for `STORE=firestore`. Empty means the environment's project |
+| `FIRESTORE_DATABASE` | `(default)` | Firestore database ID for `STORE=firestore` |
+
+## Storing data in Firestore
+
+The JSON file is fine on one server, but only one server process can use it, and it is lost with its disk. For hosting, for example on Cloud Run, store agencies and widgets in Firestore instead:
+
+1. In the Google Cloud project, create a Firestore database in **Native mode**, in a region near your users (for example `eur3` or `europe-west3`).
+2. Give the server's service account the **Cloud Datastore User** role (`roles/datastore.user`).
+3. Set `STORE=firestore`. On Google Cloud, the project and credentials are picked up automatically. Elsewhere, set `FIRESTORE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS`.
+
+Data is kept in two collections: `agencies` (API keys are stored only as SHA-256 hashes) and `widgets`. Firestore creates the indexes the server needs automatically. `npm run create-agency` writes to whichever store is configured.
+
+Reviews are still cached in each server's memory, so with several instances each one asks Google on its own. The monthly Google request limit is counted in Firestore, so it holds across instances. Two instances that ask Google at the very same moment can each still make one request past the limit.
+
+To move existing data from the JSON file, create the agencies again in Firestore, or copy each entry of `agencies` and `widgets` in `data/db.json` to a document with the same ID.
 
 ## API
 
@@ -105,7 +123,8 @@ WhiteLabelGoogleReviewforNicheAgencies/
 │   ├── server.js             Entry point: starts the server
 │   ├── app.js                All HTTP routes (public, admin, operator)
 │   ├── config.js             Reads environment variables
-│   ├── store.js              Saves agencies & widgets to a JSON file
+│   ├── store.js              Saves agencies & widgets to a JSON file; picks the store
+│   ├── firestore-store.js    Saves agencies & widgets to Firestore
 │   ├── google.js             Google Places API (New) client
 │   ├── reviews.js            Review caching and star/count filtering
 │   ├── demo.js               Sample reviews for demo mode
@@ -137,6 +156,7 @@ WhiteLabelGoogleReviewforNicheAgencies/
 │
 ├── scripts/
 │   ├── create-agency.js      npm run create-agency
+│   ├── with-firestore-emulator.js  Runs a command against the Firestore emulator
 │   └── run-acceptance-stage.js
 │
 ├── docs/deployment-pipeline.md
@@ -148,7 +168,7 @@ WhiteLabelGoogleReviewforNicheAgencies/
 └── README.md
 ```
 
-**How a request flows:** A client's site loads `public/widget.js`. The widget asks `src/app.js` for its data. `reviews.js` gets reviews from `google.js`, or from `demo.js` when there's no API key, then caches and filters them. Widget and agency settings are stored in `data/db.json` by `store.js`.
+**How a request flows:** A client's site loads `public/widget.js`. The widget asks `src/app.js` for its data. `reviews.js` gets reviews from `google.js`, or from `demo.js` when there's no API key, then caches and filters them. Widget and agency settings are stored in `data/db.json` by `store.js`, or in Firestore by `firestore-store.js`.
 
 ## Development and the deployment pipeline
 
@@ -156,15 +176,17 @@ This project follows Dave Farley's Continuous Delivery approach. Every commit to
 
 | Stage | Run it locally | What it does |
 | --- | --- | --- |
-| Commit | `npm run commit-stage` | Lint, unit and component tests with an 85% coverage gate. CI also runs a dependency audit and builds the release candidate image once |
+| Commit | `npm run commit-stage` | Lint, unit and component tests with an 85% coverage gate. CI runs the store tests against the Firestore emulator too (`npm run test:firestore`), runs a dependency audit and builds the release candidate image once |
 | Acceptance | `npm run acceptance-stage` | Deploys the app with Google stubbed out, then runs smoke tests and executable specifications through the API and a real browser. Set `IMAGE=<tag>` to test a Docker image |
 | Release | CI only, on `main` | Pushes the exact tested image to `ghcr.io/<owner>/reputation-widget` |
 
 To run acceptance tests on your machine, install Chromium once with `npx playwright install chromium`.
 
+To run the store tests against Firestore on your machine, install Java 21 or later and the emulator (`gcloud components install cloud-firestore-emulator`), then run `npm run test:firestore`. Without the emulator, the Firestore tests are skipped.
+
 ## Roadmap ideas
 
-- Swap the JSON file for Postgres or SQLite when running multiple server instances
+- Share the review cache between server instances (for example in Firestore)
 - Custom domains per agency (for example, `reviews.agency.com`)
 - Schema.org `AggregateRating` markup for SEO
 - Built-in QR code generation for review links, and click analytics

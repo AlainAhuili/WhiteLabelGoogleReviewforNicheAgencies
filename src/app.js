@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { writeReviewUrl } from './google.js';
 import { selectReviews } from './reviews.js';
+import { googleRequestsIn } from './store.js';
 import { ValidationError, validateBranding, validateWidget } from './validation.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
@@ -34,7 +35,7 @@ function publicAgency(agency) {
 
 /**
  * @param {object} deps
- * @param {import('./store.js').Store} deps.store
+ * @param {import('./store.js').Store | import('./firestore-store.js').FirestoreStore} deps.store
  * @param {import('./reviews.js').ReviewService} deps.reviews
  * @param {{ publicUrl: string, demoMode: boolean, version?: string, operatorApiKey?: string }} deps.config
  */
@@ -57,7 +58,7 @@ export function createApp({ store, reviews, config, now = Date.now }) {
 
   function googleAllowanceUsed(widget, month) {
     const limit = config.googleRequestsPerWidgetPerMonth;
-    return tracksGoogleUsage && Boolean(limit) && store.googleRequests(widget.id, month) >= limit;
+    return tracksGoogleUsage && Boolean(limit) && googleRequestsIn(widget, month) >= limit;
   }
 
   // ---- Public, embeddable endpoints -------------------------------------
@@ -69,19 +70,28 @@ export function createApp({ store, reviews, config, now = Date.now }) {
   });
 
   publicApi.get('/widgets/:id', async (req, res) => {
-    const widget = store.getWidget(req.params.id);
+    const widget = await store.getWidget(req.params.id);
     if (!widget) return res.status(404).json({ error: 'Widget not found' });
-    const agency = store.getAgency(widget.agencyId);
+    const agency = await store.getAgency(widget.agencyId);
 
     let place;
+    let failure;
+    let counting;
     try {
       const month = currentMonth();
       place = await reviews.getPlace(widget.placeId, {
         mayAskGoogle: !googleAllowanceUsed(widget, month),
-        onAskGoogle: () => tracksGoogleUsage && store.recordGoogleRequest(widget.id, month),
+        onAskGoogle: () => {
+          if (tracksGoogleUsage) counting = store.recordGoogleRequest(widget.id, month);
+        },
       });
     } catch (err) {
-      console.error(`Failed to load reviews for widget ${widget.id}:`, err.message);
+      failure = err;
+    }
+    // Finish counting before answering: a hosted instance may be paused once it has replied.
+    await counting?.catch((err) => console.error(`Failed to count a Google request for widget ${widget.id}:`, err.message));
+    if (failure) {
+      console.error(`Failed to load reviews for widget ${widget.id}:`, failure.message);
       return res.status(502).json({ error: 'Reviews are temporarily unavailable' });
     }
 
@@ -109,8 +119,8 @@ export function createApp({ store, reviews, config, now = Date.now }) {
   app.use('/api/public', publicApi);
 
   // Short, shareable "leave us a review" link for emails, SMS and QR codes.
-  app.get('/r/:id', (req, res) => {
-    const widget = store.getWidget(req.params.id);
+  app.get('/r/:id', async (req, res) => {
+    const widget = await store.getWidget(req.params.id);
     if (!widget) return res.status(404).send('Review link not found');
     res.redirect(302, writeReviewUrl(widget.placeId));
   });
@@ -119,16 +129,16 @@ export function createApp({ store, reviews, config, now = Date.now }) {
 
   const admin = express.Router();
 
-  admin.use((req, res, next) => {
+  admin.use(async (req, res, next) => {
     const token = bearerToken(req);
-    const agency = token && store.findAgencyByApiKey(token);
+    const agency = token && (await store.findAgencyByApiKey(token));
     if (!agency) return res.status(401).json({ error: 'Invalid or missing API key' });
     req.agency = agency;
     next();
   });
 
-  function ownWidget(req, res) {
-    const widget = store.getWidget(req.params.id);
+  async function ownWidget(req, res) {
+    const widget = await store.getWidget(req.params.id);
     if (!widget || widget.agencyId !== req.agency.id) {
       res.status(404).json({ error: 'Widget not found' });
       return null;
@@ -142,7 +152,7 @@ export function createApp({ store, reviews, config, now = Date.now }) {
       ...widget,
       // This month's usage; the stored record may still describe an earlier month.
       googleUsage: tracksGoogleUsage
-        ? { month, requests: store.googleRequests(widget.id, month), limit: config.googleRequestsPerWidgetPerMonth || null }
+        ? { month, requests: googleRequestsIn(widget, month), limit: config.googleRequestsPerWidgetPerMonth || null }
         : null,
       reviewLink: `${config.publicUrl}/r/${widget.id}`,
       embedCode:
@@ -155,8 +165,8 @@ export function createApp({ store, reviews, config, now = Date.now }) {
     res.json({ agency: publicAgency(req.agency), demoMode: config.demoMode });
   });
 
-  admin.put('/branding', (req, res) => {
-    const agency = store.updateBranding(req.agency.id, validateBranding(req.body));
+  admin.put('/branding', async (req, res) => {
+    const agency = await store.updateBranding(req.agency.id, validateBranding(req.body));
     res.json({ agency: publicAgency(agency) });
   });
 
@@ -171,31 +181,31 @@ export function createApp({ store, reviews, config, now = Date.now }) {
     }
   });
 
-  admin.get('/widgets', (req, res) => {
-    res.json({ widgets: store.listWidgets(req.agency.id).map(withLinks) });
+  admin.get('/widgets', async (req, res) => {
+    res.json({ widgets: (await store.listWidgets(req.agency.id)).map(withLinks) });
   });
 
-  admin.post('/widgets', (req, res) => {
-    const widget = store.createWidget(req.agency.id, validateWidget(req.body));
+  admin.post('/widgets', async (req, res) => {
+    const widget = await store.createWidget(req.agency.id, validateWidget(req.body));
     res.status(201).json({ widget: withLinks(widget) });
   });
 
-  admin.patch('/widgets/:id', (req, res) => {
-    const widget = ownWidget(req, res);
+  admin.patch('/widgets/:id', async (req, res) => {
+    const widget = await ownWidget(req, res);
     if (!widget) return;
-    const updated = store.updateWidget(widget.id, validateWidget(req.body, { partial: true }));
+    const updated = await store.updateWidget(widget.id, validateWidget(req.body, { partial: true }));
     res.json({ widget: withLinks(updated) });
   });
 
-  admin.delete('/widgets/:id', (req, res) => {
-    const widget = ownWidget(req, res);
+  admin.delete('/widgets/:id', async (req, res) => {
+    const widget = await ownWidget(req, res);
     if (!widget) return;
-    store.deleteWidget(widget.id);
+    await store.deleteWidget(widget.id);
     res.status(204).end();
   });
 
-  admin.post('/widgets/:id/refresh', (req, res) => {
-    const widget = ownWidget(req, res);
+  admin.post('/widgets/:id/refresh', async (req, res) => {
+    const widget = await ownWidget(req, res);
     if (!widget) return;
     if (googleAllowanceUsed(widget, currentMonth())) {
       return res.status(429).json({
@@ -221,12 +231,12 @@ export function createApp({ store, reviews, config, now = Date.now }) {
     next();
   });
 
-  operator.post('/agencies', (req, res) => {
+  operator.post('/agencies', async (req, res) => {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     if (!name || name.length > 100) {
       return res.status(400).json({ error: 'name is required (max 100 characters)' });
     }
-    const { agency, apiKey } = store.createAgency(name);
+    const { agency, apiKey } = await store.createAgency(name);
     res.status(201).json({ agency: publicAgency(agency), apiKey });
   });
 
