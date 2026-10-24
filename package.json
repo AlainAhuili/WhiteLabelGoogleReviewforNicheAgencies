@@ -14,6 +14,7 @@
     "create-agency": "node --env-file-if-exists=.env scripts/create-agency.js",
     "lint": "eslint .",
     "test": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=85 'test/**/*.test.js'",
+    "test:firestore": "node scripts/with-firestore-emulator.js npm test",
     "commit-stage": "npm run lint && npm test",
     "test:acceptance": "node --test --test-concurrency=4 'acceptance/specs/**/*.spec.js'",
     "test:smoke": "node --test 'acceptance/smoke/**/*.spec.js'",
@@ -21,6 +22,7 @@
     "google-stub": "node acceptance/stubs/google-places-stub.js"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^9.4.0",
     "express": "^5.2.1"
   },
   "devDependencies": {
